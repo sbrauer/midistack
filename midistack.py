@@ -27,14 +27,14 @@ class Slot():
         self.enabled = False
         self.output = 0
         self.channel = 0
-        self.semitone = 0
+        self.notes = [0]
 
     def to_dict(self):
         return dict(
             enabled = self.enabled,
             output = self.output,
             channel = self.channel,
-            semitone = self.semitone,
+            notes = self.notes,
         )
 
 class StackSeq(pyseq.PySeq):
@@ -64,17 +64,22 @@ class StackSeq(pyseq.PySeq):
         ):
             return 1
         data = ev.getData()
+        orig_note = None
+        is_note_event = ev.type in (pyseq.SND_SEQ_EVENT_NOTE, pyseq.SND_SEQ_EVENT_NOTEON, pyseq.SND_SEQ_EVENT_NOTEOFF)
+        if is_note_event:
+            orig_note = data.note
         for slot in self.stacks[data.channel]:
             if slot.enabled:
                 data.channel = slot.channel
-                if slot.semitone and (ev.type in (pyseq.SND_SEQ_EVENT_NOTE, pyseq.SND_SEQ_EVENT_NOTEON, pyseq.SND_SEQ_EVENT_NOTEOFF)):
-                    data.note += slot.semitone
-                    if data.note < 0:
-                        data.note = 0
-                    elif data.note > 127:
-                        data.note = 127
-                ev.setData(data)
-                ev.sendNow(self, self.out_ports[slot.output])
+                if is_note_event:
+                    for note in slot.notes:
+                        data.note = orig_note + note
+                        if (data.note > -1) and (data.note < 128):
+                            ev.setData(data)
+                            ev.sendNow(self, self.out_ports[slot.output])
+                else:
+                    ev.setData(data)
+                    ev.sendNow(self, self.out_ports[slot.output])
         return 1
 
     def set_enabled(self, ch_in, slot, val):
@@ -92,10 +97,19 @@ class StackSeq(pyseq.PySeq):
         # val is an int identifying an output channel by index
         self.stacks[ch_in][slot].channel = val
 
-    def set_semitone(self, ch_in, slot, val):
+    def add_note(self, ch_in, slot, val):
         # ch_in and slot are 0-based indexes
-        # val is a signed int representing a semitone offset
-        self.stacks[ch_in][slot].semitone = val
+        # val is a signed ints representing a semitone offset
+        notes = self.stacks[ch_in][slot].notes
+        if val not in notes:
+            notes.append(val)
+
+    def del_note(self, ch_in, slot, val):
+        # ch_in and slot are 0-based indexes
+        # val is a signed ints representing a semitone offset
+        notes = self.stacks[ch_in][slot].notes
+        if val in notes:
+            notes.remove(val)
 
     def serialize(self):
         return [ [ slot.to_dict() for slot in stack ] for stack in self.stacks ]
@@ -224,15 +238,18 @@ class MidiStack:
                 widget = gtk.OptionMenu()
                 menu = gtk.Menu()
                 for semi in range(-SEMITONE_RANGE, SEMITONE_RANGE+1):
-                    menu.add(gtk.MenuItem(label="%d" % semi))
+                    item = gtk.CheckMenuItem(label="%d" % semi)
+                    item.set_active(semi == 0)
+                    item.note = semi
+                    item.connect("toggled", self.note_changed_callback)
+                    menu.add(item)
                 widget.set_menu(menu)
-                widget.channel = channel
-                widget.slot = slot
-                widget.parameter = 'semitone'
                 widget.set_history(SEMITONE_RANGE)
-                widget.connect("changed", self.changed_callback)
                 box.pack_start(widget, False, False, 0)
-                slot_widgets[widget.parameter] = widget
+                menu.channel = channel
+                menu.slot = slot
+                menu.parameter = 'notes'
+                slot_widgets[menu.parameter] = menu
 
         self.seq = StackSeq('MidiStack')
         self.thread = pyseq.MidiThread(self.seq)
@@ -253,8 +270,13 @@ class MidiStack:
             self.seq.set_output(widget.channel, widget.slot, widget.get_history())
         elif parm == 'channel':
             self.seq.set_channel(widget.channel, widget.slot, widget.get_history())
-        elif parm == 'semitone':
-            self.seq.set_semitone(widget.channel, widget.slot, widget.get_history() - SEMITONE_RANGE)
+
+    def note_changed_callback(self, widget):
+        menu = widget.get_parent()
+        if widget.get_active():
+            self.seq.add_note(menu.channel, menu.slot, widget.note)
+        else:
+            self.seq.del_note(menu.channel, menu.slot, widget.note)
 
     def delete_event(self, *args):
         self.thread.stop()
@@ -300,7 +322,9 @@ class MidiStack:
                     self.widgets[ch][slot]['enabled'].set_active(slot_dict['enabled'])
                     self.widgets[ch][slot]['output'].set_history(slot_dict['output'])
                     self.widgets[ch][slot]['channel'].set_history(slot_dict['channel'])
-                    self.widgets[ch][slot]['semitone'].set_history(SEMITONE_RANGE + slot_dict['semitone'])
+                    slot_notes = slot_dict['notes']
+                    for item in self.widgets[ch][slot]['notes'].get_children():
+                        item.set_active(item.note in slot_notes)
         except:
             dialog = gtk.MessageDialog(flags = gtk.DIALOG_MODAL | gtk.DIALOG_DESTROY_WITH_PARENT, type=gtk.MESSAGE_ERROR, buttons=gtk.BUTTONS_OK, message_format="Error loading kit.")
             dialog.run()
