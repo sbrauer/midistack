@@ -90,7 +90,6 @@ class StackSeq(pyseq.PySeq):
                 for note in range(MIDI_NOTES):
                     event.setNoteOff(ch, note, 0)
                     event.sendNow(self, self.out_ports[out])
-                    print "note off ch=%s out=%s note=%s" % (ch, out, note)
 
     def set_enabled(self, ch_in, slot, val):
         # ch_in and slot are 0-based indexes
