@@ -112,6 +112,7 @@ class StackSeq(pyseq.PySeq):
         notes = self.stacks[ch_in][slot].notes
         if val not in notes:
             notes.append(val)
+            notes.sort()
 
     def del_note(self, ch_in, slot, val):
         # ch_in and slot are 0-based indexes
