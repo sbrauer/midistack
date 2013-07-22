@@ -20,6 +20,7 @@ NUM_OUTS = 4
 NUM_SLOTS = 4
 MIDI_CHANNELS = 16
 SEMITONE_RANGE = 24
+MIDI_NOTES = 128
 
 class Slot():
 
@@ -81,6 +82,15 @@ class StackSeq(pyseq.PySeq):
                     ev.setData(data)
                     ev.sendNow(self, self.out_ports[slot.output])
         return 1
+
+    def panic(self):
+        event = pyseq.snd_seq_event()
+        for ch in range(MIDI_CHANNELS):
+            for out in range(NUM_OUTS):
+                for note in range(MIDI_NOTES):
+                    event.setNoteOff(ch, note, 0)
+                    event.sendNow(self, self.out_ports[out])
+                    print "note off ch=%s out=%s note=%s" % (ch, out, note)
 
     def set_enabled(self, ch_in, slot, val):
         # ch_in and slot are 0-based indexes
@@ -162,10 +172,9 @@ class MidiStack:
 #        item.connect("activate", self.init_kit_callback)
 #        menu.append(item)
 
-# FIXME: implement
-#        item = gtk.MenuItem("Panic")
-#        item.connect("activate", self.panic_callback)
-#        menu.append(item)
+        item = gtk.MenuItem("Panic")
+        item.connect("activate", self.panic_callback)
+        menu.append(item)
 
 # FIXME: delete this and debug() ???
         item = gtk.MenuItem("Debug")
@@ -285,6 +294,9 @@ class MidiStack:
 
     def debug(self, *args):
         pprint.pprint(self.seq.serialize())
+
+    def panic_callback(self, *args):
+        self.seq.panic()
 
     def save_kit_as_callback(self, ev):
         chooser = gtk.FileChooserDialog(title="Save kit as...", action=gtk.FILE_CHOOSER_ACTION_SAVE, buttons=(gtk.STOCK_CANCEL,gtk.RESPONSE_CANCEL,gtk.STOCK_OPEN,gtk.RESPONSE_OK))
